@@ -6,9 +6,14 @@
   min-height: 100vh;
   padding: 20px;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: white;
   position: relative;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  will-change: transform;
+  -webkit-font-smoothing: antialiased;
 }
 
 .game-header {
@@ -64,6 +69,10 @@
   touch-action: none;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000;
+  will-change: transform;
 }
 
 .point {
@@ -83,6 +92,9 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   border: 2px solid rgba(255, 255, 255, 0.2);
+  transform: translate3d(-50%, -50%, 0);
+  will-change: transform, background-color, box-shadow;
+  touch-action: none;
 }
 
 .point.connected {
@@ -102,7 +114,7 @@
   background-color: #dc3545;
   transform: translate(-50%, -50%) scale(1.2);
   box-shadow: 0 0 20px rgba(220, 53, 69, 0.6);
-  animation: shake-error 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  animation: shake-error 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
   border-color: rgba(255, 255, 255, 0.4);
 }
 
@@ -115,6 +127,8 @@
   border-radius: 2px;
   box-shadow: 0 0 10px rgba(10, 102, 194, 0.3);
   transition: all 0.2s ease;
+  will-change: transform, width;
+  backface-visibility: hidden;
 }
 
 .line.current-line {
@@ -122,15 +136,52 @@
   height: 3px;
   background: linear-gradient(to right, #0a66c2, #1884e380);
   box-shadow: 0 0 15px rgba(10, 102, 194, 0.2);
+  pointer-events: none;
+  transform-origin: left center;
+  will-change: transform, width;
+}
+
+/* Add path guidance effect */
+.line.current-line::before {
+  content: "";
+  position: absolute;
+  top: -20px;
+  left: 0;
+  right: 0;
+  bottom: -20px;
+  background: linear-gradient(
+    to right,
+    rgba(10, 102, 194, 0.1),
+    rgba(24, 132, 227, 0.05)
+  );
+  border-radius: 20px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.line.current-line:not(.invalid)::before {
+  opacity: 1;
+}
+
+/* Improve point hover state */
+.point:not(.connected):hover {
+  transform: translate3d(-50%, -50%, 0) scale(1.15);
+  box-shadow: 0 0 20px rgba(10, 102, 194, 0.3);
+  z-index: 2;
 }
 
 .point::before {
-  content: '';
+  content: "";
   position: absolute;
   width: 200%;
   height: 200%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(220, 53, 69, 0.1) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(220, 53, 69, 0.1) 0%,
+    transparent 70%
+  );
   transform: translate(-25%, -25%);
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -143,10 +194,13 @@
 
 .point.near-line::before {
   opacity: 1;
-  background: radial-gradient(circle, rgba(220, 53, 69, 0.2) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(220, 53, 69, 0.2) 0%,
+    transparent 70%
+  );
   animation: pulse-warning 1s infinite;
 }
-
 
 @keyframes pulse {
   0% {
@@ -164,34 +218,45 @@
 }
 
 @keyframes shake {
-  10%, 90% {
+  10%,
+  90% {
     transform: translate(-50%, -50%) translate3d(-1px, 0, 0);
   }
-  20%, 80% {
+  20%,
+  80% {
     transform: translate(-50%, -50%) translate3d(2px, 0, 0);
   }
-  30%, 50%, 70% {
+  30%,
+  50%,
+  70% {
     transform: translate(-50%, -50%) translate3d(-4px, 0, 0);
   }
-  40%, 60% {
+  40%,
+  60% {
     transform: translate(-50%, -50%) translate3d(4px, 0, 0);
   }
 }
 
 @keyframes shake-error {
-  0%, 100% {
+  0%,
+  100% {
     transform: translate(-50%, -50%) scale(1.2);
   }
-  10%, 90% {
+  10%,
+  90% {
     transform: translate(-52%, -50%) scale(1.2);
   }
-  20%, 80% {
+  20%,
+  80% {
     transform: translate(-48%, -50%) scale(1.2);
   }
-  30%, 50%, 70% {
+  30%,
+  50%,
+  70% {
     transform: translate(-54%, -50%) scale(1.2);
   }
-  40%, 60% {
+  40%,
+  60% {
     transform: translate(-46%, -50%) scale(1.2);
   }
 }
@@ -210,13 +275,14 @@
 
 .level-info {
   position: absolute;
-  bottom: 20px;
+  top: 40px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.1);
   padding: 10px 20px;
   border-radius: 20px;
   backdrop-filter: blur(10px);
+  z-index: 1;
 }
 
 .level-text {
@@ -254,8 +320,13 @@
     height: 3px;
   }
 
+  .level-info {
+    top: 40px;
+    padding: 8px 16px;
+  }
+
   .level-text {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
 }
 
@@ -291,8 +362,8 @@
   }
 
   .level-info {
-    padding: 8px 16px;
-    bottom: 10px;
+    top: 8px;
+    padding: 6px 12px;
   }
 }
 
@@ -313,8 +384,8 @@
   }
 
   .level-info {
-    transform: scale(0.8);
-    bottom: 5px;
+    transform: scale(0.8) translateX(-60%);
+    top: 5px;
   }
 }
 

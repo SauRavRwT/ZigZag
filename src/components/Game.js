@@ -53,8 +53,10 @@ const Game = () => {
   const boardRef = useRef(null);
   const lastValidPointRef = useRef(null);
 
-  const INTERSECTION_THRESHOLD = 0.25; // Reduced from 0.3 for more precise detection
-  const WARNING_THRESHOLD = 0.4; // Distance at which to show warning visuals
+  // Reduce these values to make it easier to navigate between points
+  const INTERSECTION_THRESHOLD = 0.2; // Reduced from 0.25
+  const WARNING_THRESHOLD = 0.3; // Reduced from 0.4
+  const POINT_DETECTION_RADIUS = 0.15; // Increased from 0.1 for easier point selection
 
   const gridSize = Math.min(
     Math.floor(window.innerWidth * 0.8),
@@ -100,6 +102,38 @@ const Game = () => {
     setPath([]);
   }, [generatePoints]);
 
+  // Add helper for calculating valid path zone
+  const isInValidPathZone = (x, y, startPoint, endPoint) => {
+    // Calculate the ideal path width
+    const pathWidth = 0.4; // Width of the valid path zone
+
+    const dx = endPoint.x - startPoint.x;
+    const dy = endPoint.y - startPoint.y;
+    const length = Math.sqrt(dx * dx + dy * dy);
+
+    // If points are too close, allow more freedom of movement
+    if (length < 1) return true;
+
+    // Calculate normalized perpendicular vector
+    const perpX = -dy / length;
+    const perpY = dx / length;
+
+    // Calculate relative position of the point
+    const pointX = x - startPoint.x;
+    const pointY = y - startPoint.y;
+
+    // Project point onto path
+    const proj = (pointX * dx + pointY * dy) / length;
+
+    // Check if point is within path bounds
+    if (proj < 0 || proj > length) return false;
+
+    // Calculate distance from path center
+    const dist = Math.abs(pointX * perpX + pointY * perpY);
+
+    return dist <= pathWidth;
+  };
+
   const getPointFromPosition = useCallback(
     (clientX, clientY) => {
       if (!boardRef.current) return null;
@@ -108,13 +142,15 @@ const Game = () => {
       const relativeX = (clientX - rect.left) / rect.width;
       const relativeY = (clientY - rect.top) / rect.height;
 
+      // Convert to grid coordinates (0-8)
+      const gridX = relativeX * 8;
+      const gridY = relativeY * 8;
+
       return points.find((point) => {
-        const pointX = (point.x + 0.5) / 8;
-        const pointY = (point.y + 0.5) / 8;
         const distance = Math.sqrt(
-          Math.pow(pointX - relativeX, 2) + Math.pow(pointY - relativeY, 2)
+          Math.pow(point.x - gridX, 2) + Math.pow(point.y - gridY, 2)
         );
-        return distance < 0.1; // Increased detection radius
+        return distance < POINT_DETECTION_RADIUS;
       });
     },
     [points]
@@ -158,79 +194,96 @@ const Game = () => {
   const checkIntermediatePoints = useCallback(
     (lineStart, lineEnd, currentX, currentY) => {
       const nearbyPoints = [];
-      const intersectingPoint = points.find((p) => {
-        if (p === lastValidPointRef.current || p.number === currentPoint)
-          return false;
 
-        // Calculate distance from point to line segment
-        const distance = pointToLineDistance(
-          p.x,
-          p.y,
-          lineStart.x,
-          lineStart.y,
-          currentX,
-          currentY
-        );
+      // Only check intermediate points if we're not in the valid path zone
+      if (!isInValidPathZone(currentX, currentY, lineStart, lineEnd)) {
+        const intersectingPoint = points.find((p) => {
+          if (p === lastValidPointRef.current || p.number === currentPoint)
+            return false;
 
-        if (distance < WARNING_THRESHOLD) {
-          nearbyPoints.push(p);
-        }
+          const distance = pointToLineDistance(
+            p.x,
+            p.y,
+            lineStart.x,
+            lineStart.y,
+            currentX,
+            currentY
+          );
 
-        return distance < INTERSECTION_THRESHOLD;
-      });
+          if (distance < WARNING_THRESHOLD) {
+            nearbyPoints.push(p);
+          }
 
-      setNearPoints(nearbyPoints);
-      return intersectingPoint;
+          return distance < INTERSECTION_THRESHOLD;
+        });
+
+        setNearPoints(nearbyPoints);
+        return intersectingPoint;
+      }
+
+      setNearPoints([]);
+      return null;
     },
     [points, currentPoint]
   );
 
+  // Update the handlePointerMove function
   const handlePointerMove = useCallback(
     (e) => {
       if (!isDragging) return;
       e.preventDefault();
 
-      const clientX = e.clientX ?? e.touches[0].clientX;
-      const clientY = e.clientY ?? e.touches[0].clientY;
-      setMousePosition({ x: clientX, y: clientY });
+      // Use RequestAnimationFrame for smooth updates
+      requestAnimationFrame(() => {
+        const clientX = e.clientX ?? e.touches[0].clientX;
+        const clientY = e.clientY ?? e.touches[0].clientY;
 
-      // Convert mouse position to relative coordinates
-      const rect = boardRef.current.getBoundingClientRect();
-      const relativeX = ((clientX - rect.left) / rect.width) * 8;
-      const relativeY = ((clientY - rect.top) / rect.height) * 8;
+        // Cache the board rect to avoid reflow
+        const rect = boardRef.current.getBoundingClientRect();
+        const relativeX = ((clientX - rect.left) / rect.width) * 8;
+        const relativeY = ((clientY - rect.top) / rect.height) * 8;
 
-      // Check if any intermediate point is in the path
-      const lastPoint = lastValidPointRef.current;
-      const lineStart = { x: lastPoint.x, y: lastPoint.y };
-
-      const intersectingPoint = checkIntermediatePoints(
-        lineStart,
-        { x: relativeX, y: relativeY },
-        relativeX,
-        relativeY
-      );
-
-      if (intersectingPoint) {
-        handleWrongConnection(intersectingPoint);
-        return;
-      }
-
-      const point = getPointFromPosition(clientX, clientY);
-      if (point && !path.includes(point)) {
-        if (point.number === currentPoint) {
-          lastValidPointRef.current = point;
-          setPath([...path, point]);
-          setCurrentPoint(point.number + 1);
-          setNearPoints([]); // Clear near points when a valid point is connected
-
-          if (point.number === points.length) {
-            setIsDragging(false);
-            setTimeout(handleSuccess, 500);
-          }
-        } else if (point.number !== currentPoint) {
-          handleWrongConnection(point);
+        // Debounce mouse position updates
+        if (
+          Math.abs(mousePosition.x - clientX) > 1 ||
+          Math.abs(mousePosition.y - clientY) > 1
+        ) {
+          setMousePosition({ x: clientX, y: clientY });
         }
-      }
+
+        // Check if any intermediate point is in the path
+        const lastPoint = lastValidPointRef.current;
+        const lineStart = { x: lastPoint.x, y: lastPoint.y };
+
+        const intersectingPoint = checkIntermediatePoints(
+          lineStart,
+          { x: relativeX, y: relativeY },
+          relativeX,
+          relativeY
+        );
+
+        if (intersectingPoint) {
+          handleWrongConnection(intersectingPoint);
+          return;
+        }
+
+        const point = getPointFromPosition(clientX, clientY);
+        if (point && !path.includes(point)) {
+          if (point.number === currentPoint) {
+            lastValidPointRef.current = point;
+            setPath([...path, point]);
+            setCurrentPoint(point.number + 1);
+            setNearPoints([]); // Clear near points when a valid point is connected
+
+            if (point.number === points.length) {
+              setIsDragging(false);
+              setTimeout(handleSuccess, 500);
+            }
+          } else if (point.number !== currentPoint) {
+            handleWrongConnection(point);
+          }
+        }
+      });
     },
     [
       isDragging,
@@ -241,6 +294,7 @@ const Game = () => {
       handleSuccess,
       handleWrongConnection,
       checkIntermediatePoints,
+      mousePosition,
     ]
   );
 
@@ -269,19 +323,39 @@ const Game = () => {
       window.removeEventListener("pointermove", handlePointerMove);
     };
   }, [handlePointerUp, handlePointerMove]);
+
+  // Add touch specific event handling
+  useEffect(() => {
+    if (!boardRef.current) return;
+
+    const board = boardRef.current;
+    const options = { passive: false };
+
+    board.addEventListener("touchstart", handlePointerDown, options);
+    board.addEventListener("touchmove", handlePointerMove, options);
+    board.addEventListener("touchend", handlePointerUp, options);
+    board.addEventListener("touchcancel", handlePointerUp, options);
+
+    return () => {
+      board.removeEventListener("touchstart", handlePointerDown, options);
+      board.removeEventListener("touchmove", handlePointerMove, options);
+      board.removeEventListener("touchend", handlePointerUp, options);
+      board.removeEventListener("touchcancel", handlePointerUp, options);
+    };
+  }, [handlePointerDown, handlePointerMove, handlePointerUp]);
+
   return (
-    <div className="game">
-      <div className="game-header">
+    <div className="game">      <div className="game-header">
         <h1 className="game-title">ZigZag</h1>
+      </div>
+
+      <div className="level-info">
+        <p className="level-text">Level {level}</p>
       </div>
 
       <div className="game-stats">
         <h3 className="stats-title">Best Level</h3>
         <p className="stats-value">{bestLevel}</p>
-      </div>
-
-      <div className="level-info">
-        <p className="level-text">Level {level}</p>
       </div>
 
       <div
